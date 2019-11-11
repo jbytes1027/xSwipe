@@ -15,7 +15,7 @@ use FindBin;
 # use Smart::Comments;
 
 my $natural_scroll = 0;
-my $base_dist = 0.1;
+my $base_dist = .01;
 my $polling_interval = 10;
 my $conf_file_name = "eventKey.cfg";
 my $n_scroll_conf_file_name = "nScroll/eventKey.cfg";
@@ -159,6 +159,7 @@ my @y_hist5 = (); # y coordinate history (5 fingers)
 my $axis = 0;
 my $rate = 0;
 
+my $has_had_event = 0;
 my $touch_state = "not_swiping"; # touchState={0/1/2} 0=notSwiping, 1=Swiping, 2=edge_swiping
 my $last_time = 0;               # time monitor for TouchPad event reset
 my $event_time = 0;              # ensure enough time has passed between events
@@ -285,23 +286,24 @@ while(my $line = <INFILE>){
     }
   }else{
     clean_hist(1, 2, 3, 4, 5);
+    $has_had_event=0;
     if($touch_state ne "not_swiping"){
       $touch_state = "not_swiping";
       &switch_touch_pad("On");
     }
   }
 
-
-#detect action
-  if ($axis ne 0){
+  #detect action
+  if ($axis ne 0 && $has_had_event eq 0){
     @event_string = set_event_string($f,$axis,$rate,$touch_state);
-    clean_hist(1, 2, 3, 4, 5);
+    $has_had_event = 1; # stop repeating gestures
+    # clean_hist(1, 2, 3, 4, 5); allows multiple swipes without lifting fingers
   }
 
-# only process one event per time window
+  # only process one event per time window
   if( $event_string[0] ne "default" ){
     ### ne default
-    if( abs($time - $event_time) > 0.2 ){
+    if( abs($time - $event_time) > 0.2){
       ### $time - $event_time got: $time - $event_time
       $event_time = $time;
       PressKey $_ foreach(@event_string);
@@ -345,8 +347,10 @@ sub switch_touch_pad{
   }
 }
 
+#returns
 sub get_axis{
   my($x_hist, $y_hist, $max, $threshould_rate)=@_;
+  $threshould_rate=1;
   if(@$x_hist > $max or @$y_hist > $max){
     my $x0     = @$x_hist[0];
     my $y0     = @$y_hist[0];
@@ -383,6 +387,7 @@ sub get_rate{
   return 0;
 }
 
+#resets for new gesture
 sub clean_hist{
   while(my $arg = shift){
     if($arg == 1){
