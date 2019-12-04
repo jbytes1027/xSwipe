@@ -14,8 +14,11 @@ use FindBin;
 #debug
 # use Smart::Comments;
 
+use IO::Handle;
+STDOUT->autoflush(1);
+
 my $natural_scroll = 0;
-my $base_dist = .01;
+my $base_dist = .02;
 my $polling_interval = 10;
 my $conf_file_name = "eventKey.cfg";
 my $n_scroll_conf_file_name = "nScroll/eventKey.cfg";
@@ -159,6 +162,8 @@ my @y_hist5 = (); # y coordinate history (5 fingers)
 my $axis = 0;
 my $rate = 0;
 
+my $has_had_3f_x_event = 0;
+
 my $has_had_event = 0;
 my $touch_state = "not_swiping"; # touchState={0/1/2} 0=notSwiping, 1=Swiping, 2=edge_swiping
 my $last_time = 0;               # time monitor for TouchPad event reset
@@ -212,7 +217,7 @@ while(my $line = <INFILE>){
     clean_hist(1, 3, 4, 5);
     push @x_hist2, $x;
     push @y_hist2, $y;
-    $axis = get_axis(\@x_hist2, \@y_hist2, 2, 0.1);
+    $axis = get_axis(\@x_hist2, \@y_hist2, 5, 0.1);
     if($axis eq "x"){
       $rate = get_rate(@x_hist2);
     }elsif($axis eq "y"){
@@ -235,6 +240,7 @@ while(my $line = <INFILE>){
     push @x_hist3, $x;
     push @y_hist3, $y;
     $axis = get_axis(\@x_hist3, \@y_hist3, 5, 0.5);
+
     if($axis eq "x"){
       $rate = get_rate(@x_hist3);
     }elsif($axis eq "y"){
@@ -285,6 +291,13 @@ while(my $line = <INFILE>){
       $rate = get_rate(@y_hist5);
     }
   }else{
+    #reset
+    if ($has_had_3f_x_event eq 1){
+      ReleaseKey "LAL";
+      print "\n";
+      $has_had_3f_x_event = 0;
+    }
+
     clean_hist(1, 2, 3, 4, 5);
     $has_had_event=0;
     if($touch_state ne "not_swiping"){
@@ -297,19 +310,30 @@ while(my $line = <INFILE>){
   if ($axis ne 0 && $has_had_event eq 0){
     @event_string = set_event_string($f,$axis,$rate,$touch_state);
     $has_had_event = 1; # stop repeating gestures
-    # clean_hist(1, 2, 3, 4, 5); allows multiple swipes without lifting fingers
+    
+    # clean_hist(1, 2, 3, 4, 5); # allows multiple swipes without lifting fingers
+  }
+
+  if ($rate ne 0){
+  print $rate;
+  print $axis;
+  }
+  if ($axis ne 0){
+    if ($f eq 3 && $axis eq "x"){ # allow multiple gestures with 3 fingers in x axis
+    @event_string = set_event_string($f,$axis,$rate,$touch_state);
+    $has_had_event = 1; # stop repeating other gestures
+    $has_had_3f_x_event = 1;
+    PressKey "LAL";
+    clean_hist(3);
+    }
   }
 
   # only process one event per time window
-  if( $event_string[0] ne "default" ){
-    ### ne default
-    if( abs($time - $event_time) > 0.2){
-      ### $time - $event_time got: $time - $event_time
-      $event_time = $time;
-      PressKey $_ foreach(@event_string);
-      ReleaseKey $_ foreach(reverse @event_string);
-      ### @event_string
-    }# if enough time has passed
+  if($event_string[0] ne "default"){
+    $event_time = $time;
+    PressKey $_ foreach(@event_string);
+    ReleaseKey $_ foreach(reverse @event_string);
+    clean_hist(1,2,3,4,5);
     @event_string = ("default");
   }#if non default event
 }#synclient line in
@@ -351,14 +375,17 @@ sub switch_touch_pad{
 sub get_axis{
   my($x_hist, $y_hist, $max, $threshould_rate)=@_;
   $threshould_rate=1;
+
   if(@$x_hist > $max or @$y_hist > $max){
     my $x0     = @$x_hist[0];
     my $y0     = @$y_hist[0];
-    my $xmax   = @$x_hist[$max];
-    my $ymax   = @$y_hist[$max];
+    # my $xmax   = @$x_hist[$max];
+    # my $ymax   = @$y_hist[$max];
+    my $xmax   = @$x_hist[$#$x_hist]; # last item
+    my $ymax   = @$y_hist[$#$y_hist]; # last item
     my $x_dist = abs( $x0 - $xmax );
     my $y_dist = abs( $y0 - $ymax );
-    if($x_dist > $y_dist){
+    if($x_dist > $y_dist || $has_had_3f_x_event eq 1){
       if($x_dist > $x_min_thredshould * $threshould_rate){
         return "x";
       }else{
@@ -513,4 +540,3 @@ sub set_event_string{
   }
   return "default";
 }
-
